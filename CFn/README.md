@@ -7,6 +7,7 @@ Fargateに対して、Rollingアップデートパイプラインを構築する
 
 ## ファイル構成
 
+```[text]
 .
 ├── README.md
 ├── cicd-rolling.yaml // Rolling Update用のパイプライン構築
@@ -20,6 +21,7 @@ Fargateに対して、Rollingアップデートパイプラインを構築する
     ├── system_dev_ecr-rolling_parameter.json
     ├── system_dev_ecs-rolling_parameter.json
     └── system_dev_vpc_parameter.json
+```
 
 ## 構成図面
 
