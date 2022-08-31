@@ -1,0 +1,455 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: 
+  Rolling Update For ECS Fargate with GitHub
+
+Metadata:
+  "AWS::CloudFormation::Interface":
+    ParameterGroups:
+      - Label:
+          default: "System Configuration"
+        Parameters:
+          - Environment
+          - SystemtName
+      - Label:
+          default: "VPC Configuration"
+        Parameters:
+          - VpcId
+          - CodeBuildSubnetId1
+          - CodeBuildSubnetId2
+      - Label:
+          default: "ECR・ECS Configuration"
+        Parameters:
+          - ECSClusterName
+          - ECSServiceName
+          - ECSTaskContainerName
+          - ECRName
+      - Label:
+          default: "GitHub Configuration"
+        Parameters:
+          - GitHubOrganizationName
+          - GitHubRepositoryName
+          - GitHubBranchName
+
+Parameters:
+  Environment:
+    Default: dev
+    Type: String
+  SystemName:
+    Default: system
+    Type: String
+
+  ECSClusterName:
+    Default: system-dev-rolling-cluster
+    Description : "CI/CD Deploy ECS Cluster"
+    Type: String
+  ECSServiceName:
+    Default: system-dev-rolling-service
+    Description : "CI/CD Deploy ECS Service"
+    Type: String
+  ECSTaskContainerName:
+    Default: app-container
+    Description : "CI/CD Deploy ECS Task Container"
+    Type: String
+  ECRName:
+    Default: system-dev-repo
+    Description : "ECR Repository Name"
+    Type: String
+  GitHubOrganizationName:
+    Default: GitHubOrganizationName
+    Description : "CI/CD GitHub Organization"
+    Type: String
+  GitHubRepositoryName:
+    Default: GitHubRepositoryName
+    Description : "CI/CD GitHub Repository"
+    Type: String
+  GitHubBranchName:
+    Default: GitHubBranchName
+    Description : "CI/CD GitHub Branch"
+    Type: String
+  VpcId:
+    Default: vpc-
+    Description : "VPC ID"
+    Type: AWS::EC2::VPC::Id
+  CodeBuildSubnetId1:
+    Default: subnet-private1Id
+    Description : "Private Subnet 1st"
+    Type: AWS::EC2::Subnet::Id
+  CodeBuildSubnetId2:
+    Default: subnet-private2Id
+    Description : "Private Subnet 2nd"
+    Type: AWS::EC2::Subnet::Id
+
+Resources:
+# ------------------------------------------------------------#
+#  Security Group
+# ------------------------------------------------------------#
+
+  CodeBuildSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Rolling Update CodeBuild Security Group
+      GroupName: !Sub "${SystemName}-${Environment}-rolling-code-build-sg"
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: Name
+        Value: !Sub "${SystemName}-${Environment}-rolling-code-build-sg"
+      - Key: Systemname
+        Value: !Sub "${SystemName}"
+      - Key: Environment
+        Value: !Sub "${Environment}"
+
+# ------------------------------------------------------------#
+#  CICD Role
+# ------------------------------------------------------------#
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${SystemName}-${Environment}-rolling-cicd-build-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${Environment}-rolling-cicd-build-role"
+        - Key: SystemName
+          Value: !Sub "${SystemName}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+  CodeBuildServicePolicy:
+    Type: AWS::IAM::Policy
+    DependsOn: CodeBuildServiceRole
+    Properties:
+      PolicyName: !Sub "${SystemName}-${Environment}-rolling-cicd-build-policy"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Resource: "*"
+            Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+          - Resource: !Sub arn:aws:s3:::${RollingArtifactBucket}/*
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:GetObjectVersion
+              - s3:GetBucketAcl
+              - s3:GetBucketLocation
+          - Resource: "*"
+            Effect: Allow
+            Action:
+              - ecr:GetAuthorizationToken
+              - ecr:BatchCheckLayerAvailability
+              - ecr:GetDownloadUrlForLayer
+              - ecr:GetRepositoryPolicy
+              - ecr:DescribeRepositories
+              - ecr:ListImages
+              - ecr:DescribeImages
+              - ecr:BatchGetImage
+              - ecr:InitiateLayerUpload
+              - ecr:UploadLayerPart
+              - ecr:CompleteLayerUpload
+              - ecr:PutImage
+          - Resource: "*"
+            Effect: Allow
+            Action:
+              - ec2:CreateNetworkInterface
+              - ec2:DescribeDhcpOptions
+              - ec2:DescribeNetworkInterfaces
+              - ec2:DeleteNetworkInterface
+              - ec2:DescribeSubnets
+              - ec2:DescribeSecurityGroups
+              - ec2:DescribeVpcs
+          - Resource: "*"
+            Effect: Allow
+            Action:
+              - ec2:CreateNetworkInterface
+              - ec2:DescribeDhcpOptions
+              - ec2:DescribeNetworkInterfaces
+              - ec2:DeleteNetworkInterface
+              - ec2:DescribeSubnets
+              - ec2:DescribeSecurityGroups
+              - ec2:DescribeVpcs
+              - ec2:CreateNetworkInterfacePermission
+          - Resource: "*"
+            Effect: Allow
+            Action:
+              - codestar-connections:UseConnection
+      Roles:
+        - !Ref CodeBuildServiceRole
+
+  CodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${SystemName}-${Environment}-rolling-cicd-pipeline-role"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${Environment}-rolling-cicd-build-role"
+        - Key: SystemName
+          Value: !Sub "${SystemName}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+  CodePipelineServicePolicy:
+    Type: AWS::IAM::Policy
+    DependsOn: CodePipelineServiceRole
+    Properties:
+      PolicyName: !Sub "${SystemName}-${Environment}-rolling-cicd-pipeline-policy"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Resource:
+              - !Sub arn:aws:s3:::${RollingArtifactBucket}/*
+            Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+              - s3:GetObjectVersion
+              - s3:GetBucketVersioning
+          - Resource: "*"
+            Effect: Allow
+            Action:
+              - codecommit:GetRepository
+              - codecommit:ListBranches
+              - codecommit:GetUploadArchiveStatus
+              - codecommit:UploadArchive
+              - codecommit:CancelUploadArchive
+              - codedeploy:CreateDeployment
+              - codedeploy:GetApplication
+              - codedeploy:GetApplicationRevision
+              - codedeploy:GetDeployment
+              - codedeploy:GetDeploymentConfig
+              - codedeploy:RegisterApplicationRevision
+              - codebuild:StartBuild
+              - codebuild:StopBuild
+              - codebuild:BatchGet*
+              - codebuild:Get*
+              - codebuild:List*
+              - codecommit:GetBranch
+              - codecommit:GetCommit
+              - s3:*
+              - ecs:*
+              - elasticloadbalancing:*
+              - autoscaling:*
+              - iam:PassRole
+              - codestar-connections:UseConnection
+      Roles:
+        - !Ref CodePipelineServiceRole
+# ------------------------------------------------------------#
+#  Rolling Artifact S3 Bucket
+# ------------------------------------------------------------#
+  RollingArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${SystemName}-${Environment}-rolling-cicd-artifact-${AWS::AccountId}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: "AES256"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: TRUE
+        BlockPublicPolicy: TRUE
+        IgnorePublicAcls: TRUE
+        RestrictPublicBuckets: TRUE
+      LifecycleConfiguration:
+        Rules:
+          - Id: !Sub "${SystemName}-${Environment}-rolling-cicd-build-artifact-lifecycle"
+            Status: Enabled
+            ExpirationInDays: 400
+      Tags:
+      - Key: Name
+        Value: !Sub "${SystemName}-${Environment}-rolling-cicd-artifact-${AWS::AccountId}"
+      - Key: SystemName
+        Value: !Sub "${SystemName}"
+      - Key: Environment
+        Value: !Sub "${Environment}"
+
+# ------------------------------------------------------------#
+#  GitHub Connection
+# ------------------------------------------------------------#
+  GitHubConnection:
+    Type: AWS::CodeStarConnections::Connection
+    Properties:
+      ConnectionName: !Sub "${SystemName}-${Environment}-rolling-cicd-github"
+      ProviderType: GitHub
+      Tags:
+      - Key: Name
+        Value: !Sub "${SystemName}-${Environment}-rolling-cicd-github"
+      - Key: SystemName
+        Value: !Sub "${SystemName}"
+      - Key: Environment
+        Value: !Sub "${Environment}"
+
+# ------------------------------------------------------------#
+#  Code Build LogGroup
+# ------------------------------------------------------------#
+  CodeBuildLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Sub "${SystemName}-${Environment}-rolling-cicd-code-build"
+
+
+# ------------------------------------------------------------#
+#  Code Build
+# ------------------------------------------------------------#
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    DependsOn: CodeBuildServicePolicy
+    Properties:
+      Name: !Sub "${SystemName}-${Environment}-rolling-cicd-code-build"
+      Environment:
+        PrivilegedMode: true
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: "aws/codebuild/amazonlinux2-x86_64-standard:3.0"
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: AWS_REGION
+            Value: !Ref AWS::Region
+          - Name: REPOSITORY_URI
+            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRName}
+          - Name: ECSTaskContainerName
+            Value: !Ref ECSTaskContainerName
+      Artifacts:
+        Type: CODEPIPELINE
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          env:
+            variables:
+              DOCKER_BUILDKIT: "1"
+          phases:
+            install:
+              runtime-versions:
+                docker: 19
+            pre_build:
+              commands:
+                - AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
+                - echo Logging in to ECR
+                - aws ecr --region ${AWS_REGION} get-login-password | docker login --username AWS --password-stdin https://${REPOSITORY_URI}
+                - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+                - IMAGE_TAG=${COMMIT_HASH:=latest}
+            build:
+              commands:
+                - echo Build started on `date`
+                - docker image build -t ${REPOSITORY_URI}:${COMMIT_HASH} .
+            post_build:
+              commands:
+                - echo Build completed on `date`
+                - echo Pushing the Docker images
+                - docker image push ${REPOSITORY_URI}:${COMMIT_HASH}
+                - printf '[{"name":"%s","imageUri":"%s"}]' ${ECSTaskContainerName} ${REPOSITORY_URI}:${COMMIT_HASH} > imagedefinitions.json
+          artifacts:
+              files: imagedefinitions.json      
+      ServiceRole: !Ref CodeBuildServiceRole
+      Cache: 
+        Modes: 
+          - "LOCAL_DOCKER_LAYER_CACHE"
+          - "LOCAL_SOURCE_CACHE"
+        Type: "LOCAL"
+      LogsConfig: 
+        CloudWatchLogs:
+          Status: "ENABLED"
+          GroupName: !Ref CodeBuildLogGroup
+      Visibility: "PRIVATE"
+      TimeoutInMinutes: 60
+      QueuedTimeoutInMinutes: 480
+      VpcConfig:
+        SecurityGroupIds: 
+          - !Ref CodeBuildSecurityGroup
+        Subnets: 
+          - !Ref CodeBuildSubnetId1
+          - !Ref CodeBuildSubnetId2
+        VpcId: !Ref VpcId
+      Tags:
+      - Key: Name
+        Value: !Sub "${SystemName}-${Environment}-rolling-cicd-build"
+      - Key: SystemName
+        Value: !Sub "${SystemName}"
+      - Key: Environment
+        Value: !Sub "${Environment}"
+
+# ------------------------------------------------------------#
+#  Code Pipeline
+# ------------------------------------------------------------#
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    DependsOn: CodePipelineServicePolicy
+    Properties:
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      Name: !Sub "${SystemName}-${Environment}-rolling-cicd-pipeline"
+      ArtifactStore:
+        Type: S3
+        Location: !Ref RollingArtifactBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Version: 1
+                Provider: CodeStarSourceConnection
+              Configuration:
+                FullRepositoryId: !Sub
+                  - ${GitHubOrganizationName}/${GitHubRepositoryName}
+                  - GitHubOrganizationName: !Ref GitHubOrganizationName
+                    GitHubRepositoryName: !Ref GitHubRepositoryName
+                ConnectionArn: !Ref GitHubConnection
+                BranchName: !Ref GitHubBranchName
+                OutputArtifactFormat: CODEBUILD_CLONE_REF
+              RunOrder: 1
+              OutputArtifacts:
+                - Name: SourceArtifact
+        - Name: Build
+          Actions:
+            - Name: Build
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              Configuration:
+                ProjectName: !Ref CodeBuildProject
+              RunOrder: 1
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: BuildArtifact
+        - Name: Deploy
+          Actions:
+            - Name: Deploy
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: ECS
+              Configuration:
+                ClusterName: !Ref ECSClusterName
+                ServiceName: !Ref ECSServiceName
+                FileName: imagedefinitions.json
+              RunOrder: 1
+              InputArtifacts:
+                - Name: BuildArtifact
+      Tags:
+      - Key: Name
+        Value: !Sub "${SystemName}-${Environment}-rolling-cicd-pipeline"
+      - Key: SystemName
+        Value: !Sub "${SystemName}"
+      - Key: Environment
+        Value: !Sub "${Environment}"

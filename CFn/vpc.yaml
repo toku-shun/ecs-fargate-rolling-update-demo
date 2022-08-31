@@ -1,0 +1,335 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description:
+  VPC Create
+
+Metadata:
+  "AWS::CloudFormation::Interface":
+    ParameterGroups:
+      - Label:
+          default: "System Configuration"
+        Parameters:
+          - Environment
+          - SystemtName
+      - Label:
+          default: "Netowork Configuration"
+        Parameters:
+          - VPCCIDR
+          - AvailabilityZone1
+          - AvailabilityZone2
+          - PublicSubnet1CIDR
+          - PublicSubnet2CIDR
+          - PrivateSubnet1CIDR
+          - PrivateSubnet2CIDR
+
+# ------------------------------------------------------------#
+# Input Parameters
+# ------------------------------------------------------------# 
+Parameters:
+  Environment:
+    Default: dev
+    Type: String
+  SystemName:
+    Default: system
+    Type: String
+  VPCCIDR:
+    Type: String
+    Default: "10.10.0.0/16"
+  AvailabilityZone1:
+    Type: String
+    Default: "ap-northeast-1a"
+  AvailabilityZone2:
+    Type: String
+    Default: "ap-northeast-1c"
+  PublicSubnet1CIDR:
+    Type: String
+    Default: "10.10.0.0/24"
+  PublicSubnet2CIDR:
+    Type: String
+    Default: "10.10.1.0/24"
+  PrivateSubnet1CIDR:
+    Type: String
+    Default: "10.10.2.0/24"
+  PrivateSubnet2CIDR:
+    Type: String
+    Default: "10.10.3.0/24"
+
+
+Resources:
+  # ------------------------------------------------------------#
+  #  VPC
+  # ------------------------------------------------------------#
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VPCCIDR
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${Environment}-vpc"
+        - Key: Systemname
+          Value: !Sub "${SystemName}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+
+
+  # ------------------------------------------------------------#
+  #  Internet Gateway
+  # ------------------------------------------------------------#
+  IGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${Environment}-igw"
+        - Key: Systemname
+          Value: !Sub "${SystemName}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref IGW
+
+  # ------------------------------------------------------------#
+  #  NAT Gateway
+  # ------------------------------------------------------------#
+  NGW1: 
+    Type: "AWS::EC2::NatGateway"
+    Properties: 
+      AllocationId: !GetAtt NGW1EIP.AllocationId 
+      SubnetId: !Ref PublicSubnet1
+      Tags: 
+        - Key: Name
+          Value: !Sub "${SystemName}-${Environment}-ngw-1"
+        - Key: Systemname
+          Value: !Sub "${SystemName}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+
+  NGW1EIP: 
+    Type: "AWS::EC2::EIP"
+    Properties: 
+      Domain: vpc
+      Tags: 
+        - Key: Name
+          Value: !Sub "${SystemName}-${Environment}-nat-eip-1"
+        - Key: Systemname
+          Value: !Sub "${SystemName}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+    
+
+  NGW2: 
+    Type: "AWS::EC2::NatGateway"
+    Properties: 
+      AllocationId: !GetAtt NGW2EIP.AllocationId 
+      SubnetId: !Ref PublicSubnet2
+      Tags: 
+        - Key: Name
+          Value: !Sub "${SystemName}-${Environment}-ngw-2"
+        - Key: Systemname
+          Value: !Sub "${SystemName}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+
+  NGW2EIP: 
+    Type: "AWS::EC2::EIP"
+    Properties: 
+      Domain: vpc
+      Tags: 
+        - Key: Name
+          Value: !Sub "${SystemName}-${Environment}-nat-eip-2"
+        - Key: Systemname
+          Value: !Sub "${SystemName}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+
+
+  # ------------------------------------------------------------#
+  #  PublicSubnet
+  # ------------------------------------------------------------#
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet1CIDR
+      AvailabilityZone: !Ref AvailabilityZone1
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${Environment}-public-subnet-1"
+        - Key: Systemname
+          Value: !Sub "${SystemName}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet2CIDR
+      AvailabilityZone: !Ref AvailabilityZone2
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${Environment}-public-subnet-2"
+        - Key: Systemname
+          Value: !Sub "${SystemName}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+
+
+  # ------------------------------------------------------------#
+  #  Public RouteTable
+  # ------------------------------------------------------------#
+  PublicRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "${SystemName}-${Environment}-public-rt-1"
+      - Key: Systemname
+        Value: !Sub "${SystemName}"
+      - Key: Environment
+        Value: !Sub "${Environment}"
+
+
+  PublicRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "${SystemName}-${Environment}-public-rt-2"
+      - Key: Systemname
+        Value: !Sub "${SystemName}"
+      - Key: Environment
+        Value: !Sub "${Environment}"
+
+  # ------------------------------------------------------------#
+  #  Public Routing
+  # ------------------------------------------------------------#
+  PublicRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable1
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref IGW
+
+  PublicRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable2
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref IGW
+
+  # ------------------------------------------------------------#
+  #  Public RouteTable Association
+  # ------------------------------------------------------------#
+  PublicSubnetAttach1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable1
+      SubnetId: !Ref PublicSubnet1
+
+  PublicSubnetAttach2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable2
+      SubnetId: !Ref PublicSubnet2
+
+  # ------------------------------------------------------------#
+  #  PrivateSubnet
+  # ------------------------------------------------------------#
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      AvailabilityZone: !Ref AvailabilityZone1
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${Environment}-private-subnet-1"
+        - Key: Systemname
+          Value: !Sub "${SystemName}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+ 
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      AvailabilityZone: !Ref AvailabilityZone2
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${Environment}-private-subnet-2"
+        - Key: Systemname
+          Value: !Sub "${SystemName}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+
+
+  # ------------------------------------------------------------#
+  #  Private RouteTable
+  # ------------------------------------------------------------#
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "${SystemName}-${Environment}-private-rt-1"
+      - Key: Systemname
+        Value: !Sub "${SystemName}"
+      - Key: Environment
+        Value: !Sub "${Environment}"
+
+
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: !Sub "${SystemName}-${Environment}-private-rt-2"
+      - Key: Systemname
+        Value: !Sub "${SystemName}"
+      - Key: Environment
+        Value: !Sub "${Environment}"
+
+
+  # ------------------------------------------------------------#
+  #  Private Routing
+  # ------------------------------------------------------------#
+  PrivateRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NGW1
+
+  PrivateRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NGW2
+  # ------------------------------------------------------------#
+  #  Private RouteTable Association
+  # ------------------------------------------------------------#
+  PrivateSubnetAttach1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      SubnetId: !Ref PrivateSubnet1
+
+  PrivateSubnetAttach2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      SubnetId: !Ref PrivateSubnet2

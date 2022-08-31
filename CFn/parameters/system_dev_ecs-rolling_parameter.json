@@ -1,0 +1,70 @@
+[
+  {
+    "ParameterKey": "ALBAllowInboundIP",
+    "ParameterValue": "xxx.xxx.xxx.xxx/32"
+  },
+  {
+    "ParameterKey": "ALBSubnetId1",
+    "ParameterValue": "subnet-public1Id"
+  },
+  {
+    "ParameterKey": "ALBSubnetId2",
+    "ParameterValue": "subnet-public2Id"
+  },
+  {
+    "ParameterKey": "ECSImage",
+    "ParameterValue": "xxxxxxxxxxxx.dkr.ecr.ap-northeast-1.amazonaws.com/system-dev-rolling-repo:latest"
+  },
+  {
+    "ParameterKey": "ECSSubnetId1",
+    "ParameterValue": "subnet-private1Id"
+  },
+  {
+    "ParameterKey": "ECSSubnetId2",
+    "ParameterValue": "subnet-private2Id"
+  },
+  {
+    "ParameterKey": "ECSTaskCPUUnit",
+    "ParameterValue": "256"
+  },
+  {
+    "ParameterKey": "ECSTaskDesiredCount",
+    "ParameterValue": "1"
+  },
+  {
+    "ParameterKey": "ECSTaskMemory",
+    "ParameterValue": "512"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "ServiceScaleCpuTarget",
+    "ParameterValue": "70"
+  },
+  {
+    "ParameterKey": "ServiceScaleInCooldown",
+    "ParameterValue": "180"
+  },
+  {
+    "ParameterKey": "ServiceScaleOutCooldown",
+    "ParameterValue": "60"
+  },
+  {
+    "ParameterKey": "SystemName",
+    "ParameterValue": "system"
+  },
+  {
+    "ParameterKey": "TaskMaxContainerCount",
+    "ParameterValue": "2"
+  },
+  {
+    "ParameterKey": "TaskMinContainerCount",
+    "ParameterValue": "1"
+  },
+  {
+    "ParameterKey": "VpcId",
+    "ParameterValue": "vpc-xxxxxxxxxxxxxxxxx"
+  }
+]

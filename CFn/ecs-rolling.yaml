@@ -1,0 +1,483 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description:
+  ECS and ALB Create
+
+Metadata:
+  "AWS::CloudFormation::Interface":
+    ParameterGroups:
+      - Label:
+          default: "System Configuration"
+        Parameters:
+          - Environment
+          - SystemtName
+      - Label:
+          default: "Netowork Configuration"
+        Parameters:
+          - VpcId
+          - ALBSubnetId1
+          - ALBSubnetId2
+          - ECSSubnetId1
+          - ECSSubnetId2
+          - ALBAllowInboundIP
+      - Label:
+          default: "Fargate Configuration"
+        Parameters:
+          - ECSImage
+          - ECSTaskCPUUnit
+          - ECSTaskMemory
+          - ECSTaskDesiredCount
+      - Label:
+          default: "Scaling Configuration"
+        Parameters:
+          - ServiceScaleCpuTarget
+          - ServiceScaleInCooldown
+          - ServiceScaleOutCooldown
+          - TaskMinContainerCount
+          - TaskMaxContainerCount
+
+# ------------------------------------------------------------#
+# Input Parameters
+# ------------------------------------------------------------# 
+Parameters:
+  Environment:
+    Default: dev
+    Type: String
+  SystemName:
+    Default: system
+    Type: String
+
+#VPCID
+  VpcId:
+    Description : "VPC ID"
+    Type: AWS::EC2::VPC::Id
+    Default: "vpc-"
+
+
+#ALBSubnet1
+  ALBSubnetId1:
+    Description : "ALB Subnet 1st"
+    Type : AWS::EC2::Subnet::Id
+    Default: "subnet-public1Id"
+
+#ALBSubnet2
+  ALBSubnetId2:
+    Description : "ALB Subnet 2nd"
+    Type : AWS::EC2::Subnet::Id
+    Default: "subnet-public2Id"
+
+#ALBAllowInboundIpAddress
+  ALBAllowInboundIP:
+    Description : "ALB Subnet 2nd"
+    Type: String
+    Default: "xxx.xxx.xxx.xxx/32"
+
+#ECSSubnet1
+  ECSSubnetId1:
+    Description : "ECS Subnet 1st"
+    Type : AWS::EC2::Subnet::Id
+    Default: "subnet-private1Id"
+
+#ECSSubnet2
+  ECSSubnetId2:
+    Description : "ECS Subnet 2nd"
+    Type : AWS::EC2::Subnet::Id
+    Default: "subnet-private2Id"
+
+#ECSTaskCPUUnit
+  ECSTaskCPUUnit:
+    Type: String
+    Default: "256"
+
+#ECSTaskMemory
+  ECSTaskMemory:
+    Type: String
+    Default: "512"
+
+#ECSImage
+  ECSImage:
+    Type: String
+    Default: "xxxxxxxxxxxx.dkr.ecr.ap-northeast-1.amazonaws.com/system-dev-rolling-repo:latest"
+
+#ECSTaskDesiredCount
+  ECSTaskDesiredCount:
+    Type: Number
+    Default: 1
+
+# Scaling params
+  ServiceScaleCpuTarget:
+    Description: Target Tracking Scaling CPU Target
+    Type: Number
+    Default: 70
+
+  ServiceScaleInCooldown:
+    Type: Number
+    Description: Target Tracking Scale In Cooldown seconds
+    Default: 180
+
+  ServiceScaleOutCooldown:
+    Type: Number
+    Description: Target Tracking Scale Out Cooldown seconds
+    Default: 60
+
+  TaskMinContainerCount:
+    Type: Number
+    Description: Minimum number of containers to run for the service
+    Default: 1
+    ConstraintDescription: Value must be at least one
+
+  TaskMaxContainerCount:
+    Type: Number
+    Description: Maximum number of containers to run for the service when auto scaling out
+    Default: 2
+    ConstraintDescription: Value must be at least one
+
+Resources:
+
+  # ------------------------------------------------------------#
+  #  Security Group
+  # ------------------------------------------------------------#
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB Security Group
+      GroupName: !Sub "${SystemName}-${Environment}-rolling-alb-sg"
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref ALBAllowInboundIP
+      Tags:
+      - Key: Name
+        Value: !Sub "${SystemName}-${Environment}-rolling-alb-sg"
+      - Key: Systemname
+        Value: !Sub "${SystemName}"
+      - Key: Environment
+        Value: !Sub "${Environment}"
+
+
+  TaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Task Security Group
+      GroupName: !Sub "${SystemName}-${Environment}-rolling-task-sg"
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: Name
+        Value: !Sub "${SystemName}-${Environment}-rolling-task-sg"
+      - Key: Systemname
+        Value: !Sub "${SystemName}"
+      - Key: Environment
+        Value: !Sub "${Environment}"
+
+# ------------------------------------------------------------#
+#  ALB
+# ------------------------------------------------------------#
+  ALB:
+    Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    Properties:
+      Name: !Sub "${SystemName}-${Environment}-rolling-alb"
+      LoadBalancerAttributes:
+        - Key: "deletion_protection.enabled"
+          Value: false
+        - Key: "idle_timeout.timeout_seconds"
+          Value: 60
+        - Key: "access_logs.s3.enabled"
+          Value: true
+        - Key: "access_logs.s3.bucket"
+          Value: !Sub "${SystemName}-${Environment}-rolling-alb-log-bucket-${AWS::AccountId}"
+      Scheme: "internet-facing"
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Subnets:
+        - !Ref ALBSubnetId1
+        - !Ref ALBSubnetId2
+      Type: "application"
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${Environment}-rolling-alb"
+        - Key: SystemName
+          Value: !Sub "${SystemName}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+
+  ALBListener:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref TargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+
+  TargetGroup:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties:
+      HealthCheckPath: /
+      VpcId: !Ref VpcId
+      Name: !Sub "${SystemName}-${Environment}-rolling-tg"
+      Protocol: HTTP
+      Port: 80
+      TargetType: ip
+
+# ------------------------------------------------------------#
+#  ALB Log S3 Bucket
+# ------------------------------------------------------------#
+  ALBLogBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${SystemName}-${Environment}-rolling-alb-log-bucket-${AWS::AccountId}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: "AES256"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: TRUE
+        BlockPublicPolicy: TRUE
+        IgnorePublicAcls: TRUE
+        RestrictPublicBuckets: TRUE
+      LifecycleConfiguration:
+        Rules:
+          - Id: !Sub "${SystemName}-${Environment}-rolling-alb-log-lifecycle"
+            Status: Enabled
+            ExpirationInDays: 400
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${Environment}-rolling-alb-log-bucket-${AWS::AccountId}"
+        - Key: SystemName
+          Value: !Sub "${SystemName}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+
+  logsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DependsOn: ALBLogBucket
+    Properties:
+      Bucket: !Sub "${SystemName}-${Environment}-rolling-alb-log-bucket-${AWS::AccountId}"
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 's3:PutObject'
+            Effect: 'Allow'
+            Resource:
+              - Fn::Join:
+                  - ''
+                  - - "arn:aws:s3:::"
+                    - !Sub "${SystemName}-${Environment}-rolling-alb-log-bucket-${AWS::AccountId}"
+                    - "/*"
+            Principal:
+              AWS: '582318560864'
+          - Action:
+              - 's3:GetBucketAcl'
+            Effect: 'Allow'
+            Resource:
+              Fn::Join:
+                  - ''
+                  - - "arn:aws:s3:::"
+                    - !Sub "${SystemName}-${Environment}-rolling-alb-log-bucket-${AWS::AccountId}"
+            Principal:
+              Service: 'logdelivery.elb.amazonaws.com'
+
+# ------------------------------------------------------------#
+# ECS Cluster
+# ------------------------------------------------------------#
+  ECSCluster:
+    Type: "AWS::ECS::Cluster"
+    Properties:
+      ClusterName: !Sub "${SystemName}-${Environment}-rolling-cluster"
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${Environment}-rolling-cluster"
+        - Key: SystemName
+          Value: !Sub "${SystemName}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+
+
+# ------------------------------------------------------------#
+#  ECS LogGroup
+# ------------------------------------------------------------#
+  ECSLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Sub "${SystemName}-${Environment}-rolling-cluster-log"
+
+# ------------------------------------------------------------#
+#  ECS Task Execution Role
+# ------------------------------------------------------------#
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${SystemName}-${Environment}-rolling-task-execution-role"
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${Environment}-rolling-task-execution-role"
+        - Key: SystemName
+          Value: !Sub "${SystemName}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+
+
+# ------------------------------------------------------------#
+#  ECS TaskDefinition
+# ------------------------------------------------------------#
+  ECSTaskDefinition:
+    Type: "AWS::ECS::TaskDefinition"
+    Properties:
+      Cpu: !Ref ECSTaskCPUUnit
+      ExecutionRoleArn: !Ref ECSTaskExecutionRole
+      Family: !Sub "${SystemName}-${Environment}-rolling-task-definition"
+      Memory: !Ref ECSTaskMemory
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ContainerDefinitions:
+        - Name: app-container
+          Image: !Ref ECSImage
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ECSLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: !Ref SystemName
+          MemoryReservation: 128
+          PortMappings:
+            - HostPort: 80
+              Protocol: tcp
+              ContainerPort: 80
+          ReadonlyRootFilesystem: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${Environment}-rolling-task-definition"
+        - Key: SystemName
+          Value: !Sub "${SystemName}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+
+
+# ------------------------------------------------------------#
+#  ECS Service
+# ------------------------------------------------------------#
+  ECSService:
+    Type: AWS::ECS::Service
+    DependsOn: ALBListener
+    Properties:
+      Cluster: !Ref ECSCluster
+      DesiredCount: !Ref ECSTaskDesiredCount
+      DeploymentConfiguration:
+          DeploymentCircuitBreaker: 
+            Enable: true
+            Rollback: true
+      LaunchType: FARGATE
+      LoadBalancers:
+        -
+          TargetGroupArn: !Ref TargetGroup
+          ContainerPort: 80
+          ContainerName: !Sub "app-container"
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+            AssignPublicIp: DISABLED
+            SecurityGroups:
+              - !Ref TaskSecurityGroup
+            Subnets:
+              - !Ref ECSSubnetId1
+              - !Ref ECSSubnetId2
+      PlatformVersion: 1.4.0
+      ServiceName: !Sub "${SystemName}-${Environment}-rolling-service"
+      TaskDefinition: !Ref ECSTaskDefinition
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${Environment}-rolling-service"
+        - Key: SystemName
+          Value: !Sub "${SystemName}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+
+
+# ------------------------------------------------------------#
+#  Auto Scaling Service
+# ------------------------------------------------------------#
+  ServiceAutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${SystemName}-${Environment}-rolling-autoscaling-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: application-autoscaling.amazonaws.com
+            Action: sts:AssumeRole
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${Environment}-rolling-autoscaling-role"
+        - Key: SystemName
+          Value: !Sub "${SystemName}"
+        - Key: Environment
+          Value: !Sub "${Environment}"
+  ServiceAutoScalingPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub "${SystemName}-${Environment}-rolling-autoscaling-policy"
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action:
+              - application-autoscaling:*
+              - cloudwatch:DescribeAlarms
+              - cloudwatch:PutMetricAlarm
+              - ecs:DescribeServices
+              - ecs:UpdateService
+            Resource: '*'
+      Roles:
+        - !Ref ServiceAutoScalingRole
+  ServiceScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MinCapacity: !Ref TaskMinContainerCount
+      MaxCapacity: !Ref TaskMaxContainerCount
+      ResourceId: 
+        !Join
+        - '/'
+        - - 'service'
+          - !Ref ECSCluster
+          - !GetAtt ECSService.Name
+      RoleARN: !GetAtt ServiceAutoScalingRole.Arn
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+    DependsOn:
+      - ECSService
+      - ServiceAutoScalingRole
+
+  ServiceScalingPolicyCPU:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${SystemName}-${Environment}-rolling-target-tracking-scaling-cpu"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ServiceScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: !Ref ServiceScaleCpuTarget
+        ScaleInCooldown: !Ref ServiceScaleInCooldown
+        ScaleOutCooldown: !Ref ServiceScaleOutCooldown
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+    DependsOn: ServiceScalingTarget

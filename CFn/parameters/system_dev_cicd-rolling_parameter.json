@@ -1,0 +1,50 @@
+[
+  {
+    "ParameterKey": "CodeBuildSubnetId1",
+    "ParameterValue": "subnet-private1Id"
+  },
+  {
+    "ParameterKey": "CodeBuildSubnetId2",
+    "ParameterValue": "subnet-private2Id"
+  },
+  {
+    "ParameterKey": "ECRName",
+    "ParameterValue": "system-dev-rolling-repo"
+  },
+  {
+    "ParameterKey": "ECSClusterName",
+    "ParameterValue": "system-dev-rolling-cluster"
+  },
+  {
+    "ParameterKey": "ECSServiceName",
+    "ParameterValue": "system-dev-rolling-service"
+  },
+  {
+    "ParameterKey": "ECSTaskContainerName",
+    "ParameterValue": "app-container"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "GitHubBranchName",
+    "ParameterValue": "GitHubBranchName"
+  },
+  {
+    "ParameterKey": "GitHubOrganizationName",
+    "ParameterValue": "GitHubOrganizationName"
+  },
+  {
+    "ParameterKey": "GitHubRepositoryName",
+    "ParameterValue": "GitHubRepositoryName"
+  },
+  {
+    "ParameterKey": "SystemName",
+    "ParameterValue": "system"
+  },
+  {
+    "ParameterKey": "VpcId",
+    "ParameterValue": "vpc-"
+  }
+]
